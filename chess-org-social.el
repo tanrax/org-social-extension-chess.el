@@ -1,9 +1,9 @@
 ;;; chess-org-social.el --- Play chess over Org Social  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2024 Free Software Foundation, Inc.
+;; Copyright (C) 2026 Free Software Foundation, Inc.
 
-;; Author: Andros Fenollosa <andros@fenollosa.email>
-;; Version: 0.1.0
+;; Author: Andros Fenollosa <hi@andros.dev>
+;; Version: 1.0.0
 ;; Package-Requires: ((emacs "25.1") (chess "2.0"))
 ;; Keywords: games, chess, network
 ;; URL: https://github.com/tanrax/org-social-extension-chess.el
