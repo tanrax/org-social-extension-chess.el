@@ -1,8 +1,17 @@
 # chess-org-social.el
 
-Play chess over [Org Social](https://github.com/tanrax/org-social.el) posts.
+Play chess over [Org Social](https://github.com/tanrax/org-social.el) posts. End-to-end tested with two real accounts on a live host.
 
 Each move is published as a `:BOT: chess` entry in your `social.org` file. Your opponent's feed is polled automatically for replies. No server, no IRC, no extra infrastructure — just two `social.org` files and HTTP.
+
+## How it works
+
+- Each move is published as a `:BOT: chess` post in the player's `social.org` via `org-social-file--new-bot-post`
+- The opponent is selected from the user's existing Org Social follows list — no URLs to type manually; the nick is extracted from the follow URL
+- The match challenge is sent automatically when the engine starts — no manual step needed
+- Opponent moves are received by polling their public feed via `url-retrieve` every `chess-org-social-poll-interval` seconds (default 30); poll URLs include a timestamp query parameter to bypass CDN caches
+- Saving and uploading is handled entirely by `org-social-file--save` — no extra configuration needed
+- `match` posts carry the player's public feed URL (`org-social-my-public-url`) so the recipient knows which feed to poll for subsequent moves
 
 ## Requirements
 
@@ -24,9 +33,7 @@ Clone or copy `chess-org-social.el` somewhere in your `load-path`, then:
 M-x chess-org-social
 ```
 
-You will be prompted to pick an opponent from your Org Social follows list. The match challenge is published immediately and your opponent's feed is polled every `chess-org-social-poll-interval` seconds (default: 30).
-
-Your opponent runs the same command, selects you as opponent, and accepts the challenge when prompted.
+You will be prompted to choose an opponent from your follows list. The match challenge is published immediately and the opponent's feed is polled for replies. Your opponent runs the same command, selects you, and accepts the challenge when prompted.
 
 ## Configuration
 
@@ -34,46 +41,61 @@ Your opponent runs the same command, selects you as opponent, and accepts the ch
 (setq chess-org-social-poll-interval 30) ; seconds between feed polls
 ```
 
-## How it looks in social.org
+## How a game looks in social.org
 
-**Player A:**
+Real output from a live test between two accounts:
+
+**chess-player-a** (initiator):
 
 ```org
 ** 2026-05-21T13:44:22+0200
 :PROPERTIES:
 :CLIENT: org-social.el
-:BOT: chess match https://host.example.org/player-a/social.org
+:BOT: chess match https://host.org-social.org/chess-player-a/social.org
+:END:
+
+** 2026-05-21T13:44:45+0200
+:PROPERTIES:
+:CLIENT: org-social.el
+:REPLY_TO: https://host.org-social.org/chess-player-b/social.org#2026-05-21T13:40:38+0200
+:BOT: chess accept https://host.org-social.org/chess-player-b/social.org
 :END:
 
 ** 2026-05-21T13:44:58+0200
 :PROPERTIES:
 :CLIENT: org-social.el
-:REPLY_TO: https://host.example.org/player-b/social.org#2026-05-21T13:40:38+0200
+:REPLY_TO: https://host.org-social.org/chess-player-b/social.org#2026-05-21T13:40:38+0200
 :BOT: chess e3
 :END:
 
 ** 2026-05-21T13:46:26+0200
 :PROPERTIES:
 :CLIENT: org-social.el
-:REPLY_TO: https://host.example.org/player-b/social.org#2026-05-21T13:46:12+0200
+:REPLY_TO: https://host.org-social.org/chess-player-b/social.org#2026-05-21T13:46:12+0200
 :BOT: chess Nf3
 :END:
 ```
 
-**Player B:**
+**chess-player-b** (responder):
 
 ```org
+** 2026-05-21T13:45:44+0200
+:PROPERTIES:
+:CLIENT: org-social.el
+:BOT: chess match https://host.org-social.org/chess-player-b/social.org
+:END:
+
 ** 2026-05-21T13:45:57+0200
 :PROPERTIES:
 :CLIENT: org-social.el
-:REPLY_TO: https://host.example.org/player-a/social.org#2026-05-21T13:44:22+0200
-:BOT: chess accept https://host.example.org/player-a/social.org
+:REPLY_TO: https://host.org-social.org/chess-player-a/social.org#2026-05-21T13:44:22+0200
+:BOT: chess accept https://host.org-social.org/chess-player-a/social.org
 :END:
 
 ** 2026-05-21T13:46:12+0200
 :PROPERTIES:
 :CLIENT: org-social.el
-:REPLY_TO: https://host.example.org/player-a/social.org#2026-05-21T13:45:50+0200
+:REPLY_TO: https://host.org-social.org/chess-player-a/social.org#2026-05-21T13:45:50+0200
 :BOT: chess d6
 :END:
 ```
