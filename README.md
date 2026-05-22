@@ -2,44 +2,80 @@
 
 Play chess over [Org Social](https://github.com/tanrax/org-social.el) posts. End-to-end tested with two real accounts on a live host.
 
-Each move is published as a `:BOT: chess` entry in your `social.org` file. Your opponent's feed is polled automatically for replies. No server, no IRC, no extra infrastructure — just two `social.org` files and HTTP.
-
-## How it works
-
-- Each move is published as a `:BOT: chess` post in the player's `social.org` via `org-social-file--new-bot-post`
-- The opponent is selected from the user's existing Org Social follows list — no URLs to type manually; the nick is extracted from the follow URL
-- The match challenge is sent automatically when the engine starts — no manual step needed
-- Opponent moves are received by polling their public feed via `url-retrieve` every `chess-org-social-poll-interval` seconds (default 30); poll URLs include a timestamp query parameter to bypass CDN caches
-- Saving and uploading is handled entirely by `org-social-file--save` — no extra configuration needed
-- `match` posts carry the player's public feed URL (`org-social-my-public-url`) so the recipient knows which feed to poll for subsequent moves
+Each move is published as a `:BOT: chess` entry in your `social.org` file. Your opponent's feed is polled automatically for replies. No server, no IRC, no extra infrastructure: just two `social.org` files and HTTP.
 
 ## Requirements
 
+- Emacs 25.1 or later
 - [emacs-chess](https://github.com/jwiegley/emacs-chess)
 - [org-social.el](https://github.com/tanrax/org-social.el) configured with `org-social-file` and `org-social-my-public-url`
 - At least one `#+FOLLOW:` entry pointing to your opponent in your `social.org`
 
 ## Installation
 
-Clone or copy `chess-org-social.el` somewhere in your `load-path`, then:
+### From MELPA
+
+Both dependencies are available on MELPA. Install them first:
+
+```
+M-x package-install RET chess RET
+M-x package-install RET org-social RET
+```
+
+Then clone or copy `chess-org-social.el` into your `load-path` and add:
 
 ```elisp
 (require 'chess-org-social)
 ```
 
-## Usage
+### Configuration
+
+Set these two variables to match your Org Social setup before playing:
+
+```elisp
+(setq org-social-file "/path/to/your/social.org")
+(setq org-social-my-public-url "https://yourhost.example.com/you/social.org")
+```
+
+Optionally adjust the poll interval (default: 30 seconds):
+
+```elisp
+(setq chess-org-social-poll-interval 30)
+```
+
+## How to play
+
+### Starting a game
+
+Both players run:
 
 ```
 M-x chess-org-social
 ```
 
-You will be prompted to choose an opponent from your follows list. The match challenge is published immediately and the opponent's feed is polled for replies. Your opponent runs the same command, selects you, and accepts the challenge when prompted.
+Each player picks the other from their follows list. The first player to run the command publishes a match challenge automatically. The second player selects the first as opponent: the challenge is detected on the next poll and accepted automatically.
 
-## Configuration
+After that, moves alternate: each move is published to your `social.org` and the opponent's feed is polled every `chess-org-social-poll-interval` seconds until their reply arrives.
 
-```elisp
-(setq chess-org-social-poll-interval 30) ; seconds between feed polls
-```
+### Resuming a game
+
+If you close Emacs mid-game, just run `M-x chess-org-social` again and pick the same opponent. Both feeds are scanned on startup to restore the game state: no moves are replayed and no duplicate challenge is sent.
+
+### Ending a game
+
+- **Resign:** use the standard chess resign command in Emacs Chess.
+- **Draw:** offer a draw through the Emacs Chess interface.
+- **Checkmate:** detected automatically; a `resign` marker is published so future sessions know the game is over.
+
+## How it works
+
+- Each move is published as a `:BOT: chess` post in the player's `social.org` via `org-social-file--new-bot-post`
+- The opponent is selected from the user's existing Org Social follows list: the nick is extracted from the follow URL, no URLs to type manually
+- The match challenge is sent automatically when the engine starts: no manual step needed
+- Opponent moves are received by polling their public feed via `url-retrieve` every `chess-org-social-poll-interval` seconds; poll URLs include a timestamp query parameter to bypass CDN caches
+- On startup, both feeds are fetched synchronously to detect a game in progress and set the last-seen post ID, so reopening Emacs mid-game works correctly
+- Saving and uploading is handled entirely by `org-social-file--save`: no extra configuration needed
+- `match` posts carry the player's public feed URL (`org-social-my-public-url`) so the recipient knows which feed to poll for subsequent moves
 
 ## How a game looks in social.org
 
@@ -111,7 +147,7 @@ The module reuses the `chess-network` text protocol over Org Social posts:
 | `match <feed-url>` | Challenge: my feed URL for polling |
 | `accept <feed-url>` | Accept challenge |
 | `e4`, `Nf3`, ... | Move in SAN notation |
-| `resign` | Resign |
+| `resign` | Resign or end-of-game marker |
 | `draw` | Offer / accept draw |
 
 ## License
