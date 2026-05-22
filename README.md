@@ -13,7 +13,7 @@ Each move is published as a `:BOT: chess` entry in your `social.org` file. Your 
 
 ## Installation
 
-### From MELPA
+### From MELPA (once available)
 
 Both dependencies are available on MELPA. Install them first:
 
@@ -26,6 +26,16 @@ Then clone or copy `chess-org-social.el` into your `load-path` and add:
 
 ```elisp
 (require 'chess-org-social)
+```
+
+### From a local clone (use-package)
+
+Clone the repository and point `use-package` at it with `:load-path`. The `:after` clause ensures both dependencies are loaded first:
+
+```elisp
+(use-package chess-org-social
+  :load-path "~/path/to/org-social-extension-chess.el"
+  :after (chess org-social))
 ```
 
 ### Configuration
