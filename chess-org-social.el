@@ -71,17 +71,20 @@
   '((org-social-select-opponent . "Opponent (from your follows): ")
     (org-social-no-follows      . "No follows found in your social.org — add #+FOLLOW: lines first")
     (org-social-waiting         . "Waiting for opponent move via Org Social (polling every %ds)...")
-    (org-social-published       . "Move published to social.org")))
+    (org-social-published       . "Move published to social.org")
+    (org-social-resuming        . "Resuming existing game via Org Social...")))
 
 (defvar chess-org-social-opponent-url nil)
 (defvar chess-org-social-opponent-last-id nil)
 (defvar chess-org-social-my-last-id nil)
 (defvar chess-org-social-poll-timer nil)
+(defvar chess-org-social-game-active nil)
 
 (make-variable-buffer-local 'chess-org-social-opponent-url)
 (make-variable-buffer-local 'chess-org-social-opponent-last-id)
 (make-variable-buffer-local 'chess-org-social-my-last-id)
 (make-variable-buffer-local 'chess-org-social-poll-timer)
+(make-variable-buffer-local 'chess-org-social-game-active)
 
 (defvar chess-org-social-regexp-alist chess-network-regexp-alist
   "Regexp alist for chess-org-social, reusing the chess-network protocol.")
@@ -170,6 +173,63 @@ Each alist has keys `id' and `params'."
                     posts))))))
     (nreverse posts)))
 
+(defun chess-org-social--fetch-sync (url)
+  "Fetch URL synchronously with cache-busting; return body string or nil on error."
+  (condition-case err
+      (let ((buf (url-retrieve-synchronously
+                  (concat url "?t=" (number-to-string (truncate (float-time))))
+                  t nil 10)))
+        (when (buffer-live-p buf)
+          (with-current-buffer buf
+            (goto-char (point-min))
+            (prog1
+                (when (re-search-forward "\r?\n\r?\n" nil t)
+                  (buffer-substring-no-properties (point) (point-max)))
+              (kill-buffer buf)))))
+    (error
+     (message "chess-org-social: fetch failed for %s: %s"
+              url (error-message-string err))
+     nil)))
+
+(defun chess-org-social--game-active-p (my-posts opp-posts)
+  "Return t if there is an ongoing game in MY-POSTS and OPP-POSTS combined."
+  (let* ((all (sort (append (copy-sequence my-posts) (copy-sequence opp-posts))
+                    (lambda (a b) (string< (alist-get 'id a) (alist-get 'id b)))))
+         (in-game nil)
+         (accepted nil))
+    (dolist (post all)
+      (let ((params (alist-get 'params post)))
+        (cond
+         ((string-prefix-p "match " params)
+          (setq in-game t accepted nil))
+         ((string-prefix-p "accept" params)
+          (when in-game (setq accepted t)))
+         ((member params '("resign" "draw" "abort"))
+          (setq in-game nil accepted nil)))))
+    (and in-game accepted)))
+
+(defun chess-org-social--restore-state (opponent-url)
+  "Set transport state by reading OPPONENT-URL and local feed synchronously.
+Sets `chess-org-social-opponent-last-id' and `chess-org-social-game-active'.
+Returns t if a game is in progress."
+  (let* ((local-content
+          (condition-case nil
+              (with-current-buffer
+                  (find-file-noselect (chess-org-social--local-file))
+                (buffer-string))
+            (error nil)))
+         (opp-content (chess-org-social--fetch-sync opponent-url))
+         (my-posts  (when local-content
+                      (chess-org-social--parse-chess-posts local-content)))
+         (opp-posts (when opp-content
+                      (chess-org-social--parse-chess-posts opp-content)))
+         (last-opp  (car (last opp-posts)))
+         (active    (chess-org-social--game-active-p my-posts opp-posts)))
+    (setq chess-org-social-opponent-last-id
+          (when last-opp (alist-get 'id last-opp)))
+    (setq chess-org-social-game-active active)
+    active))
+
 (defun chess-org-social--poll (engine-buf)
   "Fetch the opponent's feed and submit any new chess move to ENGINE-BUF."
   (when (buffer-live-p engine-buf)
@@ -199,8 +259,18 @@ Each alist has keys `id' and `params'."
                        ;; Reconstruct "chess match ..." for chess-network regexp matching
                        (let ((msg (if (string-prefix-p "match " params)
                                       (concat "chess " params "\n")
-                                    (concat params "\n"))))
-                         (chess-engine-submit nil msg)))))))))
+                                    (concat params "\n")))
+                             (game chess-module-game))
+                         (chess-engine-submit nil msg)
+                         ;; Opponent's move caused checkmate: publish resign to mark end
+                         (when (and game
+                                    (not (string-prefix-p "resign" params))
+                                    (not (string-prefix-p "draw" params))
+                                    (not (string-prefix-p "abort" params))
+                                    (not (string-prefix-p "match " params))
+                                    (not (string-prefix-p "accept" params))
+                                    (chess-game-over-p game))
+                           (chess-org-social--publish "resign" nil))))))))))
          (list engine-buf last)
          t t)))))
 
@@ -226,7 +296,13 @@ Each alist has keys `id' and `params'."
                      params))
            (new-id (chess-org-social--publish params nil)))
       (when new-id
-        (setq chess-org-social-my-last-id new-id))))
+        (setq chess-org-social-my-last-id new-id))
+      ;; Our move caused checkmate: publish resign to mark the game as ended
+      (when (and (not (member params '("resign" "draw" "abort")))
+                 (not (string-prefix-p "match " params))
+                 (not (string-prefix-p "accept" params))
+                 (chess-game-over-p game))
+        (chess-org-social--publish "resign" nil))))
 
    (chess-engine-handling-event nil)
 
@@ -236,6 +312,10 @@ Each alist has keys `id' and `params'."
          (chess-org-social--select-opponent))
     (set (make-local-variable 'chess-org-social-opponent-last-id) nil)
     (set (make-local-variable 'chess-org-social-my-last-id) nil)
+    (set (make-local-variable 'chess-org-social-game-active) nil)
+    (chess-org-social--restore-state chess-org-social-opponent-url)
+    (when chess-org-social-game-active
+      (chess-message 'org-social-resuming))
     (let ((buf (current-buffer)))
       (set (make-local-variable 'chess-org-social-poll-timer)
            (run-at-time chess-org-social-poll-interval
@@ -246,7 +326,8 @@ Each alist has keys `id' and `params'."
 
    ((eq event 'ready)
     (chess-game-run-hooks game 'announce-autosave)
-    (chess-network-handler game 'match)
+    (unless chess-org-social-game-active
+      (chess-network-handler game 'match))
     t)
 
    ((eq event 'match)
